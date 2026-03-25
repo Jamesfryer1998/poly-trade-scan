@@ -57,6 +57,12 @@ def listen(
         "-a",
         help="Track all Polymarket trades (ignore wallet filter)",
     ),
+    delay: float = typer.Option(
+        0.5,
+        "--delay",
+        "-d",
+        help="Delay in seconds between processing blocks (reduces API usage)",
+    ),
 ) -> None:
     """Listen to real-time trades via WebSocket."""
     if wallets is None and not all_trades:
@@ -72,12 +78,14 @@ def listen(
     else:
         log.info("Tracking ALL Polymarket trades (no wallet filter)")
 
-    asyncio.run(_listen(wallet_list))
+    log.info(f"Rate limiting: {delay}s delay between blocks")
+
+    asyncio.run(_listen(wallet_list, delay))
 
 
-async def _listen(wallets: list[str]) -> None:
+async def _listen(wallets: list[str], block_delay: float = 0.0) -> None:
     """Async implementation of listen command."""
-    monitor = TradeMonitor()
+    monitor = TradeMonitor(block_delay=block_delay)
 
     def on_trade(trade) -> None:
         formatted = format_trade(trade)

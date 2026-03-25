@@ -15,9 +15,17 @@ log = get_logger(__name__)
 class TradeMonitor:
     """Main orchestrator for monitoring wallet trades."""
 
-    def __init__(self, wss_url: Optional[str] = None) -> None:
+    def __init__(self, wss_url: Optional[str] = None, block_delay: float = 0.0) -> None:
+        """Initialize trade monitor.
+
+        Args:
+            wss_url: WebSocket URL for Polygon RPC (optional)
+            block_delay: Delay in seconds between processing blocks (default: 0.0)
+                        Increase this to reduce API usage rate (e.g., 0.5 or 1.0)
+        """
         self.client = PolygonClient(wss_url) if wss_url else PolygonClient()
         self.decoder = TransactionDecoder()
+        self.block_delay = block_delay
         self._callbacks: dict[str, list[Callable]] = {
             "transaction": [],
             "error": [],
@@ -69,6 +77,10 @@ class TradeMonitor:
             trades = await processor.process_block(block_number)
             for trade in trades:
                 self.emit("transaction", trade)
+
+            # Optional rate limiting: add delay between blocks
+            if self.block_delay > 0:
+                await asyncio.sleep(self.block_delay)
         except Exception as e:
             log.error("Block processing error", block=block_number, error=str(e))
             self.emit("error", e)
