@@ -1,4 +1,5 @@
 """Polymarket ABI definitions for transaction decoding."""
+from eth_utils import keccak
 
 # Order struct: (salt, maker, signer, taker, tokenId, makerAmount, takerAmount, expiration, nonce, feeRateBps, side, signatureType, signature)
 ORDER_TUPLE_TYPE = "(uint256,address,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint8,uint8,bytes)"
@@ -24,3 +25,11 @@ MATCH_ORDERS_ABI_TYPES = [
 # Legacy aliases (both contracts use same selector)
 CTF_MATCH_ORDERS_SELECTOR = MATCH_ORDERS_SELECTOR
 NEGRISK_MATCH_ORDERS_SELECTOR = MATCH_ORDERS_SELECTOR
+
+# OrderFilled event topic (keccak256 of event signature)
+# event OrderFilled(bytes32 indexed orderHash, address indexed maker, address indexed taker,
+#                   uint256 makerAssetId, uint256 takerAssetId,
+#                   uint256 makerAmountFilled, uint256 takerAmountFilled, uint256 fee)
+ORDER_FILLED_TOPIC = "0x" + keccak(
+    text="OrderFilled(bytes32,address,address,uint256,uint256,uint256,uint256,uint256)"
+).hex()

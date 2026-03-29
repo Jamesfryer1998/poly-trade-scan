@@ -32,6 +32,13 @@ class WalletFilter:
 
         return None
 
+    def filter_without_receipt(self, orders: list[DecodedOrder]) -> Optional[DecodedOrder]:
+        """Find matching order. Caller guarantees the transaction was successful."""
+        for order in orders:
+            if self._matches_wallet(order):
+                return order
+        return None
+
     def _matches_wallet(self, order: DecodedOrder) -> bool:
         """Check if order maker matches any target wallet (or all if no filter)."""
         if self.target_wallets is None:

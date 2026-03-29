@@ -41,7 +41,7 @@ class PolygonClient:
             self._ws = await websockets.connect(
                 self.wss_url,
                 ping_interval=30,
-                ping_timeout=10,
+                ping_timeout=60,
                 ssl=ssl_context,
             )
             log.info("WebSocket connected")
@@ -142,3 +142,64 @@ class PolygonClient:
         hex_block = hex(block_number)
         result = await self._rpc_call("eth_getBlockReceipts", [hex_block])
         return result or []
+
+    async def get_transaction(self, tx_hash: str) -> Optional[dict]:
+        """Fetch a single transaction by hash."""
+        return await self._rpc_call("eth_getTransactionByHash", [tx_hash])
+
+    async def get_block_header(self, block_number: int) -> dict:
+        """Fetch block header without transactions (cheaper than full block)."""
+        return await self._rpc_call("eth_getBlockByNumber", [hex(block_number), False])
+
+    async def get_current_block(self) -> int:
+        """Get the current latest block number."""
+        result = await self._rpc_call("eth_blockNumber", [])
+        return int(result, 16)
+
+    async def get_logs(
+        self,
+        from_block: int,
+        to_block: int,
+        addresses: list[str],
+        topics: Optional[list] = None,
+    ) -> list[dict]:
+        """Fetch logs from given contracts in a block range (single call).
+
+        Args:
+            topics: Optional topic filter list. Each position can be a single
+                    hex string, a list of hex strings (OR match), or None (any).
+                    Example: [ORDER_FILLED_TOPIC, None, "0x000...wallet"]
+        """
+        filter_obj: dict = {
+            "fromBlock": hex(from_block),
+            "toBlock": hex(to_block),
+            "address": addresses,
+        }
+        if topics is not None:
+            filter_obj["topics"] = topics
+        result = await self._rpc_call("eth_getLogs", [filter_obj])
+        return result or []
+
+    async def subscribe_logs(
+        self, contracts: list[str], callback: Callable[[dict], Awaitable[None]]
+    ) -> None:
+        """Subscribe to log events from specific contract addresses via WebSocket."""
+        if not self._ws:
+            await self.connect()
+
+        subscribe_msg = {
+            "jsonrpc": "2.0",
+            "id": self._next_id(),
+            "method": "eth_subscribe",
+            "params": ["logs", {"address": contracts}],
+        }
+        await self._ws.send(json.dumps(subscribe_msg))
+        await self._ws.recv()  # subscription confirmation
+
+        async for message in self._ws:
+            data = json.loads(message)
+            if "params" in data:
+                log_entry = data["params"]["result"]
+                # Skip chain reorg removals — log was removed from canonical chain
+                if not log_entry.get("removed", False):
+                    await callback(log_entry)

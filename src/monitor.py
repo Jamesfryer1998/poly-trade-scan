@@ -1,11 +1,13 @@
-"""Real-time trade monitor via WebSocket."""
+"""Real-time trade monitor via HTTP polling."""
 
 import asyncio
 from typing import Any, Callable, Optional
 
 from src.api.polygon import PolygonClient
-from src.core.block_processor import BlockProcessor
+from src.core.abi import ORDER_FILLED_TOPIC
+from src.core.block_processor import POLYMARKET_CONTRACTS
 from src.core.decoder import TransactionDecoder
+from src.core.log_processor import LogProcessor
 from src.core.wallet_filter import WalletFilter
 from src.utils.logging import get_logger
 
@@ -13,16 +15,14 @@ log = get_logger(__name__)
 
 
 class TradeMonitor:
-    """Main orchestrator for monitoring wallet trades."""
+    """Polls for Polymarket trades using eth_getLogs on a fixed interval.
 
-    def __init__(self, wss_url: Optional[str] = None, block_delay: float = 0.0) -> None:
-        """Initialize trade monitor.
+    Each poll fetches all Polymarket log events since the last poll in a
+    single eth_getLogs call, then fetches only the transactions that actually
+    match. No WebSocket required — pure HTTP polling.
+    """
 
-        Args:
-            wss_url: WebSocket URL for Polygon RPC (optional)
-            block_delay: Delay in seconds between processing blocks (default: 0.0)
-                        Increase this to reduce API usage rate (e.g., 0.5 or 1.0)
-        """
+    def __init__(self, wss_url: Optional[str] = None, block_delay: float = 1.0) -> None:
         self.client = PolygonClient(wss_url) if wss_url else PolygonClient()
         self.decoder = TransactionDecoder()
         self.block_delay = block_delay
@@ -47,43 +47,83 @@ class TradeMonitor:
                 callback(data)
 
     async def start(self, target_wallets: list[str]) -> None:
-        """Start monitoring for trades from target wallets."""
+        """Start polling for trades from target wallets."""
         self._running = True
         wallet_count = len(target_wallets) if target_wallets else 0
-        log.info("Starting monitor", wallet_count=wallet_count)
-
-        await self.client.connect()
+        log.info("Starting monitor", wallet_count=wallet_count, poll_interval=self.block_delay)
 
         wallet_filter = WalletFilter(target_wallets)
-        processor = BlockProcessor(self.client, self.decoder, wallet_filter)
+        processor = LogProcessor(self.client, self.decoder, wallet_filter)
+        contracts = list(POLYMARKET_CONTRACTS)
 
         if wallet_filter.is_tracking_all:
             log.info("Tracking ALL Polymarket trades")
+            # Filter by event type only — avoids fetching txs for non-OrderFilled events
+            topics_filter = [ORDER_FILLED_TOPIC]
         else:
             log.info("Tracking specific wallets", count=wallet_count)
+            # Pad wallet addresses to 32-byte Ethereum topic format
+            padded = ["0x" + "0" * 24 + w.lstrip("0x") for w in target_wallets]
+            maker_filter = padded if len(padded) > 1 else padded[0]
+            # topics: [event_sig, any_orderHash, maker_address]
+            topics_filter = [ORDER_FILLED_TOPIC, None, maker_filter]
 
-        try:
-            await self.client.subscribe_blocks(
-                lambda block_num: self._on_block(block_num, processor)
-            )
-        except Exception as e:
-            log.error("Monitor error", error=str(e))
-            self.emit("error", e)
-            self.emit("close", {"code": -1, "reason": str(e)})
+        log.info("Topic filter active", event=ORDER_FILLED_TOPIC[:10] + "...")
 
-    async def _on_block(self, block_number: int, processor: BlockProcessor) -> None:
-        """Handle new block event."""
-        try:
-            trades = await processor.process_block(block_number)
-            for trade in trades:
-                self.emit("transaction", trade)
+        # Alchemy free tier allows up to 10 blocks per eth_getLogs call
+        MAX_BLOCK_RANGE = 10
 
-            # Optional rate limiting: add delay between blocks
-            if self.block_delay > 0:
-                await asyncio.sleep(self.block_delay)
-        except Exception as e:
-            log.error("Block processing error", block=block_number, error=str(e))
-            self.emit("error", e)
+        # Seed with current block so we don't replay old history on startup
+        last_block = await self.client.get_current_block()
+        log.info("Starting from block", block=last_block)
+
+        while self._running:
+            await asyncio.sleep(self.block_delay)
+
+            try:
+                current_block = await self.client.get_current_block()
+
+                if current_block <= last_block:
+                    continue  # No new blocks yet
+
+                # Cap range to avoid Alchemy free tier limit (10 blocks per call).
+                # If we've fallen behind, we'll catch up over multiple iterations.
+                to_block = min(current_block, last_block + MAX_BLOCK_RANGE)
+
+                logs = await self.client.get_logs(
+                    from_block=last_block + 1,
+                    to_block=to_block,
+                    addresses=contracts,
+                    topics=topics_filter,
+                )
+                last_block = to_block
+
+                if not logs:
+                    continue
+
+                log.debug(
+                    "Poll found logs",
+                    blocks=f"{last_block + 1}-{current_block}",
+                    logs=len(logs),
+                )
+
+                # Deduplicate by tx hash — one matchOrders tx emits multiple logs
+                seen: set[str] = set()
+                for log_entry in logs:
+                    tx_hash = log_entry.get("transactionHash")
+                    if not tx_hash or tx_hash in seen:
+                        continue
+                    seen.add(tx_hash)
+
+                    trade = await processor.process_log(log_entry)
+                    if trade:
+                        self.emit("transaction", trade)
+
+            except Exception as e:
+                log.error("Poll error", error=str(e))
+                self.emit("error", e)
+
+        self.emit("close", {"code": 0, "reason": "stopped"})
 
     async def stop(self) -> None:
         """Stop monitoring."""
