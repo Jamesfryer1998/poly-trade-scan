@@ -1,0 +1,5 @@
+# Target wallet addresses for poly-trade-scan monitoring
+# One address per line
+# Auto-updated by Mirror Trading configuration
+
+0x04283f2fef49d70d8c55ab240450d17a65bf85b1

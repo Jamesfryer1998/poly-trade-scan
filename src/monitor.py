@@ -63,7 +63,7 @@ class TradeMonitor:
         else:
             log.info("Tracking specific wallets", count=wallet_count)
             # Pad wallet addresses to 32-byte Ethereum topic format
-            padded = ["0x" + "0" * 24 + w.lstrip("0x") for w in target_wallets]
+            padded = ["0x" + "0" * 24 + w[2:] for w in target_wallets]
             maker_filter = padded if len(padded) > 1 else padded[0]
             # topics: [event_sig, any_orderHash, maker_address]
             topics_filter = [ORDER_FILLED_TOPIC, None, maker_filter]
