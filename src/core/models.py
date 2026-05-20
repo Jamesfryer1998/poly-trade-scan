@@ -4,19 +4,22 @@ from dataclasses import dataclass
 
 @dataclass
 class DecodedOrder:
-    """Represents a decoded order from the blockchain transaction."""
+    """Represents a decoded order from the blockchain transaction (V2 struct).
+
+    V2 changes vs V1: removed taker, expiration, nonce, fee_rate_bps;
+    added timestamp (ms), metadata (bytes32), builder (bytes32).
+    """
 
     salt: int
     maker: str
     signer: str
-    taker: str
     token_id: str
     maker_amount: int
     taker_amount: int
-    expiration: int
-    nonce: int
-    fee_rate_bps: int
-    side: int  # 0 = BUY, 1 = SELL
+    timestamp: int   # ms epoch (uniqueness replaces nonce)
+    metadata: bytes  # bytes32
+    builder: bytes   # bytes32 builder attribution code
+    side: int        # 0 = BUY, 1 = SELL
     signature_type: int
     signature: bytes
 

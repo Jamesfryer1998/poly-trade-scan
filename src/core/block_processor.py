@@ -11,11 +11,11 @@ from src.utils.logging import get_logger
 
 log = get_logger(__name__)
 
-# Known Polymarket contract addresses
+# Known Polymarket contract addresses (V2 — updated April 28, 2026)
 POLYMARKET_CONTRACTS = {
-    "0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e",  # CTF Exchange
-    "0xc5d563a36ae78145c45a50134d48a1215220f80a",  # NegRisk CTF Exchange
-    "0x56c79347e95530c01a2fc76e732f9566da16e113",  # NegRisk Operator
+    "0xe111180000d2663c0091e4f400237545b87b996b",  # CTF Exchange V2
+    "0xe2222d279d744050d28e00520010520000310f59",  # NegRisk CTF Exchange V2
+    "0xd91e80cf2e7be2e162c6513ced06f1dd0da35296",  # NegRisk Adapter V2
 }
 
 

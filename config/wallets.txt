@@ -2,4 +2,4 @@
 # One address per line
 # Auto-updated by Mirror Trading configuration
 
-0x04283f2fef49d70d8c55ab240450d17a65bf85b1
+0xeebde7a0e019a63e6b476eb425505b7b3e6eba30
